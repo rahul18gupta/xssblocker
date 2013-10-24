@@ -286,104 +286,17 @@ TracingListener.prototype =
 {
 	onDataAvailable:function (request, context, inputStream, offset, count)
 	{
-		var myFile = getLocalDirectory();
-		myFile.append("response.log");  
-		if (!myFile.exists()) 
-		{  
-			aConsoleService.logStringMessage("created");
-			myFile.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0774);  
-		} 
-		var foStream = Components.classes["@mozilla.org/network/file-output-stream;1"].createInstance(Components.interfaces.nsIFileOutputStream);  
-		foStream.init(myFile,  0x02 | 0x10 ,0666,0);   
-		
-		var converter = Components.classes["@mozilla.org/intl/converter-output-stream;1"].createInstance(Components.interfaces.nsIConverterOutputStream);  
-		converter.init(foStream, "UTF-8", 0, 0);  
-
-		var binaryInputStream = CCIN ("@mozilla.org/binaryinputstream;1", "nsIBinaryInputStream");
-		binaryInputStream.setInputStream (inputStream);
-
-		var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
-		//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
-		storageStream.init (8192, count, null);
-
-		var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
-		binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
-
-		// Copy received data as they come.
-		var data = binaryInputStream.readBytes (count);
 		if(request.contentType == "text/html"){
-			// all the scripts on the page are separately stored in script content
-			//# script_content = get_scripts(data);
-			
-			//alert("initial data is \n" + data);
-			// check for occurence of reflected xss separately for html entities
-
-			mat_h_status = "";
-			mat_s_status = "";
-			for (var i = 0; i < this.mat_h.length; i++)
-			{
-				// used length of matching parameter heuristic 
-				if (this.mat_h[i].length < threshold) 
-				{
-					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
-					continue;
-				}
-				while ((beg = data.indexOf(this.mat_h[i])) != -1)
-				{
-					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
-					Encoder.EncodeType = "entity";
-					var a = Encoder.htmlEncode(this.mat_h[i]);
-					data=data.replace(this.mat_h[i],a);
-					converter.writeString(request.name+" "+this.mat_h[i]+"\n");  
-				}
-			}
-			parser=new DOMParser();
-			xmlDoc=parser.parseFromString(data,"text/html");
-			// check for occurence of reflected xss separately for script entities
-			scripts = xmlDoc.getElementsByTagName("script");
-			for (i = 0; i < this.mat_s.length; i++)
-			{
-				// used length of matching parameter heuristic 
-				if (this.mat_s[i].length < threshold) 
-				{
-					mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
-				continue;
-				}
-				for(var key in scripts){
-					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
-					{
-						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
-						Encoder.EncodeType = "entity";
-						var a = Encoder.scriptEncode(this.mat_s[i]);				
-						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
-						converter.writeString(request.name+" "+this.mat_s[i]+"\n");  
-					}
-				}
-
-
-				// while ((beg = script_content.indexOf(this.mat_s[i])) != -1)
-				// {
-				// 	mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
-				// 	Encoder.EncodeType = "entity";
-				// 	var a = Encoder.scriptEncode(this.mat_s[i]);
-				// 	script_content = script_content.replace(this.mat_s[i],a);
-				// 	data = data.replace(this.mat_s[i],a);
-	   //              converter.writeString(request.name+" "+this.mat_s[i]+"\n");  
-				// }
-			}
-			data = xmlDoc.documentElement.outerHTML;
-			//Firebug.Console.log(data);
-			//Firebug.Console.log("mat_h status is " + mat_h_status + "\n\nmat_s status is " + mat_s_status);
-			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\n\nmat_s status is " + mat_s_status);
-			//alert("final data is " + data);
-			this.receivedData.push (data);
-			final += data;
+			var ScriptInputStream = CCIN ("@mozilla.org/scriptableinputstream;1", "nsIScriptableInputStream");
+			ScriptInputStream.init(inputStream);
+			// Copy received data as they come.
+			//var data = binaryInputStream.readBytes (count);
+			var data = ScriptInputStream.read(count);
+			this.prev_data += data;
 		}
-		binaryOutputStream.writeBytes (data, data.length);
-		converter.close();
-		//Pass it on down the chain
-		this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), offset, data.length);
+		else{
+			this.originalListener.onDataAvailable (request, context,inputStream, offset, count);
+		}
 	},
 	
 	onStartRequest:function (request, context)
@@ -492,6 +405,63 @@ TracingListener.prototype =
 	
 	onStopRequest:function (request, context, statusCode)
 	{
+		if(request.contentType == "text/html"){
+			var data = this.prev_data;
+			var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
+			//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
+			storageStream.init (8192,data.length+1000, null);	
+
+			var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
+			binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
+			
+			mat_h_status = "";
+			mat_s_status = "";
+			for (var i = 0; i < this.mat_h.length; i++)
+			{
+				// used length of matching parameter heuristic 
+				if (this.mat_h[i].length < threshold) 
+				{
+					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
+					continue;
+				}
+				while ((beg = data.indexOf(this.mat_h[i])) != -1)
+				{
+					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
+					Encoder.EncodeType = "entity";
+					var a = Encoder.htmlEncode(this.mat_h[i]);
+					data=data.replace(this.mat_h[i],a);
+				}
+			}
+			parser=new DOMParser();
+			xmlDoc=parser.parseFromString(data,"text/html");
+			// check for occurence of reflected xss separately for script entities
+			scripts = xmlDoc.getElementsByTagName("script");
+			for (i = 0; i < this.mat_s.length; i++)
+			{
+				// used length of matching parameter heuristic 
+				if (this.mat_s[i].length < threshold) 
+				{
+					mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
+				continue;
+				}
+				for(var key in scripts){
+					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
+					{
+						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
+						Encoder.EncodeType = "entity";
+						var a = Encoder.scriptEncode(this.mat_s[i]);				
+						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
+					}
+				}
+			}
+			data = xmlDoc.documentElement.outerHTML;
+			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
+			//this.receivedData.push (data);
+			binaryOutputStream.writeBytes (data, data.length);
+			//Pass it on down the chain
+			this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), 0, data.length);	
+		}
 		this.originalListener.onStopRequest (request, context, statusCode);
 	},
 	
