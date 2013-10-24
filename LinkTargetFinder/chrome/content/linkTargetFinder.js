@@ -312,11 +312,11 @@ TracingListener.prototype =
 		// Copy received data as they come.
 		var data = binaryInputStream.readBytes (count);
 		if(request.contentType == "text/html"){
-		// all the scripts on the page are separately stored in script content
-		//# script_content = get_scripts(data);
-		
-		//alert("initial data is \n" + data);
-		// check for occurence of reflected xss separately for html entities
+			// all the scripts on the page are separately stored in script content
+			//# script_content = get_scripts(data);
+			
+			//alert("initial data is \n" + data);
+			// check for occurence of reflected xss separately for html entities
 
 			mat_h_status = "";
 			mat_s_status = "";
@@ -350,16 +350,18 @@ TracingListener.prototype =
 				continue;
 				}
 				for(var key in scripts){
-					if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
+					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
 					{
 						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
 						Encoder.EncodeType = "entity";
-						var a = Encoder.scriptEncode(this.mat_s[i]);
-						regx = new RegExp(this.mat_s[i],'g');
+						var a = Encoder.scriptEncode(this.mat_s[i]);				
+						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
 						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
 						converter.writeString(request.name+" "+this.mat_s[i]+"\n");  
 					}
-				}	
+				}
+
+
 				// while ((beg = script_content.indexOf(this.mat_s[i])) != -1)
 				// {
 				// 	mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
@@ -370,8 +372,10 @@ TracingListener.prototype =
 	   //              converter.writeString(request.name+" "+this.mat_s[i]+"\n");  
 				// }
 			}
-			data = xmlDoc.documentElement.innerHTML;
-			Firebug.Console.log("mat_h status is " + mat_h_status + "\n\nmat_s status is " + mat_s_status);
+			data = xmlDoc.documentElement.outerHTML;
+			//Firebug.Console.log(data);
+			//Firebug.Console.log("mat_h status is " + mat_h_status + "\n\nmat_s status is " + mat_s_status);
+			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\n\nmat_s status is " + mat_s_status);
 			//alert("final data is " + data);
 			this.receivedData.push (data);
 			final += data;
@@ -402,85 +406,87 @@ TracingListener.prototype =
 		this.mat_h = [];
 		this.mat_s = [];
 		
-		var url = request.name;
-		var ind1 = url.indexOf("?",0);
-		if (ind1 == -1) url = url + "?" + Gpoststr;
-		url = url.replace(/\+/g, " ");
-	 
-		url = unescape(url);
-		
-		// after the occurence of # in the url, nothing is sent to the server so it is neglected for reflected xss
-		var ind = url.indexOf("#",0);
-		if(ind != -1) url = url.substring(0,ind);
-		
-		this.par = [];
-		ind1 = url.indexOf("?",0);
-		if(ind1 != -1) 
-		
-		// filling the array this.par with all the parameters
-		while(1)
-		{
-			var ind2 = url.indexOf("=",ind1+1);
-			if(ind2 == -1) break;
-			var ind3 = url.indexOf("&",ind2+1);
-			if(ind3 == -1)
+		if(request.contentType == "text/html"){		
+			var url = request.name;
+			var ind1 = url.indexOf("?",0);
+			if (ind1 == -1) url = url + "?" + Gpoststr;
+			url = url.replace(/\+/g, " ");
+		 
+			url = unescape(url);
+			
+			// after the occurence of # in the url, nothing is sent to the server so it is neglected for reflected xss
+			var ind = url.indexOf("#",0);
+			if(ind != -1) url = url.substring(0,ind);
+			
+			this.par = [];
+			ind1 = url.indexOf("?",0);
+			if(ind1 != -1) 
+			
+			// filling the array this.par with all the parameters
+			while(1)
 			{
-				var val = url.substring(ind2+1,url.length);
+				var ind2 = url.indexOf("=",ind1+1);
+				if(ind2 == -1) break;
+				var ind3 = url.indexOf("&",ind2+1);
+				if(ind3 == -1)
+				{
+					var val = url.substring(ind2+1,url.length);
+					this.par.push(val);
+					break;
+				}
+				else var val = url.substring(ind2+1,ind3);
 				this.par.push(val);
-				break;
+				ind1 = ind3;
+			}  
+	   
+			// dividing the parameters into html and script types
+			var par_string = "";
+			for(var i=0;i<this.par.length;i++)
+			{
+				Encoder.EncodeType = "entity";
+				par_string += "\n" + (i + 1) + ") " + this.par[i];
+				var a = this.par[i];
+				var b = this.par[i];
+				a = Encoder.htmlEncode(a);
+	            b =  Encoder.scriptEncode(b);
+	        
+				// the parameter is of html type
+				if(a != this.par[i] && b == this.par[i])
+				{
+					this.mat_h.push(this.par[i]);        
+					converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
+				} 
+				// the parameter is of type script
+				else if(b != this.par[i] && a == this.par[i])
+				{
+					this.mat_s.push(this.par[i]);       
+					converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
+				} 
+				// the parameter is of both types, we need to split the parameter in script and html types separately
+				else if(a != this.par[i] && b != this.par[i])
+				{
+					this.par[i] = html_script_mix_param (this.par[i]);
+					split_sp(this.par[i], this.mat_h, this.mat_s);       
+				}
+	        }
+			mat_h_string = "";
+			mat_s_string = "";
+			for (i=0;i<this.mat_h.length;i++)
+			{
+				mat_h_string += "\n" + (i+1) + ") " + this.mat_h[i];
 			}
-			else var val = url.substring(ind2+1,ind3);
-			this.par.push(val);
-			ind1 = ind3;
-		}  
-   
-		// dividing the parameters into html and script types
-		var par_string = "";
-		for(var i=0;i<this.par.length;i++)
-		{
-			Encoder.EncodeType = "entity";
-			par_string += "\n" + (i + 1) + ") " + this.par[i];
-			var a = this.par[i];
-			var b = this.par[i];
-			a = Encoder.htmlEncode(a);
-            b =  Encoder.scriptEncode(b);
-        
-			// the parameter is of html type
-			if(a != this.par[i] && b == this.par[i])
+			for (i=0;i<this.mat_s.length;i++)
 			{
-				this.mat_h.push(this.par[i]);        
-				converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
-			} 
-			// the parameter is of type script
-			else if(b != this.par[i] && a == this.par[i])
-			{
-				this.mat_s.push(this.par[i]);       
-				converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
-			} 
-			// the parameter is of both types, we need to split the parameter in script and html types separately
-			else if(a != this.par[i] && b != this.par[i])
-			{
-				this.par[i] = html_script_mix_param (this.par[i]);
-				split_sp(this.par[i], this.mat_h, this.mat_s);       
+				mat_s_string += "\n" + (i+1) + ") " + this.mat_s[i];
 			}
-        }
-		mat_h_string = "";
-		mat_s_string = "";
-		for (i=0;i<this.mat_h.length;i++)
-		{
-			mat_h_string += "\n" + (i+1) + ") " + this.mat_h[i];
+			//Firebug.Console.log("parameters are " + par_string + "\n\nmat_h is " + mat_h_string + "\n\nmat_s is " + mat_s_string);
+			aConsoleService.logStringMessage("stored HTML parameters are: " + this.mat_h);  
+			aConsoleService.logStringMessage("stored Script parameters are: " + this.mat_s);
+	     
+			converter.close();
+			this.receivedData = [];
+			final = "";
 		}
-		for (i=0;i<this.mat_s.length;i++)
-		{
-			mat_s_string += "\n" + (i+1) + ") " + this.mat_s[i];
-		}
-		Firebug.Console.log("parameters are " + par_string + "\n\nmat_h is " + mat_h_string + "\n\nmat_s is " + mat_s_string);
-		aConsoleService.logStringMessage("stored HTML parameters are: " + this.mat_h);  
-		aConsoleService.logStringMessage("stored Script parameters are: " + this.mat_s);
-     
-		converter.close();
-		this.receivedData = [];
-		final = "";
 		this.originalListener.onStartRequest (request, context);		
 	},
 	
