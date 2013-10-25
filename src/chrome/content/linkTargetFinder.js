@@ -301,20 +301,6 @@ TracingListener.prototype =
 	
 	onStartRequest:function (request, context)
 	{
-		var myFile = getLocalDirectory();
-		myFile.append("request.log");  
-        if (!myFile.exists()) 
-		{  
-			aConsoleService.logStringMessage("created");
-			myFile.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0774);   
-		}    
-		
-		var foStream = Components.classes["@mozilla.org/network/file-output-stream;1"].createInstance(Components.interfaces.nsIFileOutputStream);  
-		foStream.init(myFile,  0x02 | 0x10 ,0666,0);   
-		
-		var converter = Components.classes["@mozilla.org/intl/converter-output-stream;1"].createInstance(Components.interfaces.nsIConverterOutputStream);  
-		converter.init(foStream, "UTF-8", 0, 0);   
-
 		// intialize the arrays corresponding to html and script parameters in mat_h and mat_s
 		this.mat_h = [];
 		this.mat_s = [];
@@ -366,14 +352,12 @@ TracingListener.prototype =
 				// the parameter is of html type
 				if(a != this.par[i] && b == this.par[i])
 				{
-					this.mat_h.push(this.par[i]);        
-					converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
+					this.mat_h.push(this.par[i]);        	
 				} 
 				// the parameter is of type script
 				else if(b != this.par[i] && a == this.par[i])
 				{
-					this.mat_s.push(this.par[i]);       
-					converter.writeString(request.name + " " + this.par[i].replace(/\+/g, " ") + "\n");  
+					this.mat_s.push(this.par[i]);       					
 				} 
 				// the parameter is of both types, we need to split the parameter in script and html types separately
 				else if(a != this.par[i] && b != this.par[i])
@@ -395,8 +379,7 @@ TracingListener.prototype =
 			//Firebug.Console.log("parameters are " + par_string + "\n\nmat_h is " + mat_h_string + "\n\nmat_s is " + mat_s_string);
 			aConsoleService.logStringMessage("stored HTML parameters are: " + this.mat_h);  
 			aConsoleService.logStringMessage("stored Script parameters are: " + this.mat_s);
-	     
-			converter.close();
+	     			
 			this.receivedData = [];
 			final = "";
 		}
