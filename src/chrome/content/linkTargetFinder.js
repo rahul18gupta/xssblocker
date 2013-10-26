@@ -399,6 +399,7 @@ TracingListener.prototype =
 			
 			mat_h_status = "";
 			mat_s_status = "";
+			var beg = 0;
 			for (var i = 0; i < this.mat_h.length; i++)
 			{
 				// used length of matching parameter heuristic 
@@ -419,25 +420,55 @@ TracingListener.prototype =
 			xmlDoc=parser.parseFromString(data,"text/html");
 			// check for occurence of reflected xss separately for script entities
 			scripts = xmlDoc.getElementsByTagName("script");
-			for (i = 0; i < this.mat_s.length; i++)
+			for(var key in scripts){
+				if(typeof scripts[key].innerHTML == 'undefined') continue;
+				mat_s_status += "\nScript {"+key+"} contains parameters ";
+				var matched_len = 0;
+				for (var i = 0; i < this.mat_s.length; i++)
+				{
+					if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
+						matched_len += this.mat_s[i].length;
+						mat_s_status += "["+this.mat_s[i]+"], ";
+					}
+					// used length of matching parameter heuristic
+				}
+				
+				if (matched_len < threshold)
+				{
+					mat_s_status += " -- length less than threshold";
+					continue;
+				} else {
+					mat_s_status += " -- length greater than threshold. Length is "+matched_len;
+					for (var i = 0; i < this.mat_s.length; i++)
+					{
+						if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
+							Encoder.EncodeType = "entity";
+							var a = Encoder.scriptEncode(this.mat_s[i]);
+							var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+							scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
+						}
+					}
+				}
+			}
+			/*for (i = 0; i < this.mat_s.length; i++)
 			{
 				// used length of matching parameter heuristic 
 				if (this.mat_s[i].length < threshold) 
 				{
 					mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
-				continue;
+					continue;
 				}
 				for(var key in scripts){
 					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
 					{
 						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
 						Encoder.EncodeType = "entity";
-						var a = Encoder.scriptEncode(this.mat_s[i]);				
+						var a = Encoder.scriptEncode(this.mat_s[i]);
 						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
 						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
 					}
 				}
-			}
+			}*/
 			data = xmlDoc.documentElement.outerHTML;
 			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
 			//this.receivedData.push (data);
