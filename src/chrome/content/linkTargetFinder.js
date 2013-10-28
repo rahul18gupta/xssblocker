@@ -308,19 +308,15 @@ TracingListener.prototype =
 {
 	onDataAvailable:function (request, context, inputStream, offset, count)
 	{
-		if(enable_extension){
-			if(request.contentType == "text/html"){
-				var ScriptInputStream = CCIN ("@mozilla.org/scriptableinputstream;1", "nsIScriptableInputStream");
-				ScriptInputStream.init(inputStream);
-				// Copy received data as they come.
-				//var data = binaryInputStream.readBytes (count);
-				var data = ScriptInputStream.read(count);
-				this.prev_data += data;
-			}
-			else{
-				this.originalListener.onDataAvailable (request, context,inputStream, offset, count);
-			}
-		} else {
+		if(request.contentType == "text/html"){
+			var ScriptInputStream = CCIN ("@mozilla.org/scriptableinputstream;1", "nsIScriptableInputStream");
+			ScriptInputStream.init(inputStream);
+			// Copy received data as they come.
+			//var data = binaryInputStream.readBytes (count);
+			var data = ScriptInputStream.read(count);
+			this.prev_data += data;
+		}
+		else{
 			this.originalListener.onDataAvailable (request, context,inputStream, offset, count);
 		}
 	},
@@ -413,100 +409,96 @@ TracingListener.prototype =
 	},
 	
 	onStopRequest:function (request, context, statusCode)
-	{
-		if(enable_extension){
-			if(request.contentType == "text/html"){
-				var data = this.prev_data;
-				var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
-				//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
-				storageStream.init (8192,data.length+1000, null);	
+	{		
+		if(request.contentType == "text/html"){
+			var data = this.prev_data;
+			var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
+			//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
+			storageStream.init (8192,data.length+1000, null);	
 
-				var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
-				binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
-				
-				mat_h_status = "";
-				mat_s_status = "";
-				var beg = 0;
-				for (var i = 0; i < this.mat_h.length; i++)
+			var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
+			binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
+			
+			mat_h_status = "";
+			mat_s_status = "";
+			var beg = 0;
+			for (var i = 0; i < this.mat_h.length; i++)
+			{
+				// used length of matching parameter heuristic 
+				if (this.mat_h[i].length < threshold) 
 				{
-					// used length of matching parameter heuristic 
-					if (this.mat_h[i].length < threshold) 
-					{
-						mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
-						continue;
-					}
-					while ((beg = data.indexOf(this.mat_h[i])) != -1)
-					{
-						mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
-						Encoder.EncodeType = "entity";
-						var a = Encoder.htmlEncode(this.mat_h[i]);
-						data=data.replace(this.mat_h[i],a);
-					}
+					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
+					continue;
 				}
-				parser=new DOMParser();
-				xmlDoc=parser.parseFromString(data,"text/html");
-				// check for occurence of reflected xss separately for script entities
-				scripts = xmlDoc.getElementsByTagName("script");
-				for(var key in scripts){
-					if(typeof scripts[key].innerHTML == 'undefined') continue;
-					mat_s_status += "\nScript {"+key+"} contains parameters ";
-					var matched_len = 0;
+				while ((beg = data.indexOf(this.mat_h[i])) != -1)
+				{
+					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
+					Encoder.EncodeType = "entity";
+					var a = Encoder.htmlEncode(this.mat_h[i]);
+					data=data.replace(this.mat_h[i],a);
+				}
+			}
+			parser=new DOMParser();
+			xmlDoc=parser.parseFromString(data,"text/html");
+			// check for occurence of reflected xss separately for script entities
+			scripts = xmlDoc.getElementsByTagName("script");
+			for(var key in scripts){
+				if(typeof scripts[key].innerHTML == 'undefined') continue;
+				mat_s_status += "\nScript {"+key+"} contains parameters ";
+				var matched_len = 0;
+				for (var i = 0; i < this.mat_s.length; i++)
+				{
+					if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
+						matched_len += this.mat_s[i].length;
+						mat_s_status += "["+this.mat_s[i]+"], ";
+					}
+					// used length of matching parameter heuristic
+				}
+				
+				if (matched_len < threshold)
+				{
+					mat_s_status += " -- length less than threshold";
+					continue;
+				} else {
+					mat_s_status += " -- length greater than threshold. Length is "+matched_len;
 					for (var i = 0; i < this.mat_s.length; i++)
 					{
 						if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
-							matched_len += this.mat_s[i].length;
-							mat_s_status += "["+this.mat_s[i]+"], ";
-						}
-						// used length of matching parameter heuristic
-					}
-					
-					if (matched_len < threshold)
-					{
-						mat_s_status += " -- length less than threshold";
-						continue;
-					} else {
-						mat_s_status += " -- length greater than threshold. Length is "+matched_len;
-						for (var i = 0; i < this.mat_s.length; i++)
-						{
-							if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
-								Encoder.EncodeType = "entity";
-								var a = Encoder.scriptEncode(this.mat_s[i]);
-								var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-								scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
-							}
-						}
-					}
-				}
-				/*for (i = 0; i < this.mat_s.length; i++)
-				{
-					// used length of matching parameter heuristic 
-					if (this.mat_s[i].length < threshold) 
-					{
-						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
-						continue;
-					}
-					for(var key in scripts){
-						if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
-						{
-							mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
 							Encoder.EncodeType = "entity";
 							var a = Encoder.scriptEncode(this.mat_s[i]);
 							var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
 							scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
 						}
 					}
-				}*/
-				data = xmlDoc.documentElement.outerHTML;
-				aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
-				//this.receivedData.push (data);
-				binaryOutputStream.writeBytes (data, data.length);
-				//Pass it on down the chain
-				this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), 0, data.length);	
+				}
 			}
-			this.originalListener.onStopRequest (request, context, statusCode);
-		} else {
-			this.originalListener.onStopRequest (request, context, statusCode);
+			/*for (i = 0; i < this.mat_s.length; i++)
+			{
+				// used length of matching parameter heuristic 
+				if (this.mat_s[i].length < threshold) 
+				{
+					mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
+					continue;
+				}
+				for(var key in scripts){
+					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
+					{
+						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
+						Encoder.EncodeType = "entity";
+						var a = Encoder.scriptEncode(this.mat_s[i]);
+						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
+					}
+				}
+			}*/
+			data = xmlDoc.documentElement.outerHTML;
+			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
+			//this.receivedData.push (data);
+			binaryOutputStream.writeBytes (data, data.length);
+			//Pass it on down the chain
+			this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), 0, data.length);	
 		}
+		this.originalListener.onStopRequest (request, context, statusCode);
 	},
 	
 	QueryInterface:function (aIID)
@@ -524,7 +516,7 @@ var httpResponseObserver =
 	// HTTP Request Interceptor 	
 	observe: function(subject, topic, data)
 	{
-		if (topic == "http-on-examine-response") 
+		if (topic == "http-on-examine-response" && enable_extension) 
 		{
 			var httpChannel = subject.QueryInterface(Components.interfaces.nsIHttpChannel);  
 			var newListener = new TracingListener();
@@ -563,7 +555,7 @@ var httpRequestObserver =
 	// HTTP Request Interceptor 	
 	observe: function(subject, topic, data)
 	{
-		if (topic == "http-on-modify-request") 
+		if (topic == "http-on-modify-request" && enable_extension) 
 		{       
 			var httpChannel = subject.QueryInterface(Components.interfaces.nsIHttpChannel);
 			if(httpChannel.requestMethod == "POST") 

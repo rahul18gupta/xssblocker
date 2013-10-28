@@ -5,7 +5,7 @@
 		<script src="linkTargetFinder.js" />
 		
 		<menupopup id="menu_ToolsPopup"> 
-			<menuitem label="&runlinktargetfinder;" key="link-target-finder-run-key" oncommand="linkTargetFinder.run()"/> 
+			<menuitem label="&runxssblocker;" key="link-target-finder-run-key" oncommand="linkTargetFinder.run()"/> 
 		</menupopup>
 		
 		<keyset>
@@ -13,11 +13,11 @@
 		</keyset>
 		
 		<statusbar id="status-bar">
-			<statusbarpanel id="link-target-finder-status-bar-icon" class="statusbarpanel-iconic" src="chrome://linktargetfinder/skin/status-bar.png" tooltiptext="&runlinktargetfinder;" onclick="linkTargetFinder.run()" />
+			<statusbarpanel id="link-target-finder-status-bar-icon" class="statusbarpanel-iconic" src="chrome://linktargetfinder/skin/status-bar.png" tooltiptext="&runxssblocker;" onclick="linkTargetFinder.run()" />
 		</statusbar>
 		
 		<toolbarpalette id="BrowserToolbarPalette">
-			<toolbarbutton id="link-target-finder-toolbar-button" label="XSS Blocker" tooltiptext="&runlinktargetfinder;" oncommand="linkTargetFinder.run()"/>
+			<toolbarbutton id="link-target-finder-toolbar-button" label="XSS Blocker" tooltiptext="&runxssblocker;" oncommand="linkTargetFinder.run()"/>
 		</toolbarpalette>
 
 </overlay>
