@@ -2,7 +2,29 @@ Components.utils.import("resource://gre/modules/NetUtil.jsm");
 Components.utils.import("resource://gre/modules/FileUtils.jsm"); 
 
 var Gpoststr = "";
-var threshold = 10
+var threshold = 10;
+var enable_extension = false;
+
+
+var linkTargetFinder = function () {
+	var prefManager = Components.classes["@mozilla.org/preferences-service;1"].getService(Components.interfaces.nsIPrefBranch);
+	return {
+		init : function () {
+			//alert("Hello World init");
+		},
+
+		run : function () {
+			enable_extension = !enable_extension;
+			if(enable_extension){
+				document.getElementById('link-target-finder-toolbar-button').style.listStyleImage = 'url("chrome://linktargetfinder/skin/toolbar-large-enabled.png")';
+			} else {
+				document.getElementById('link-target-finder-toolbar-button').style.listStyleImage = 'url("chrome://linktargetfinder/skin/toolbar-large-disabled.png")';
+			}
+			//alert(enable_extension);
+		}
+	};
+}();
+
 function CCIN (cName, ifaceName)
 {
 	return Cc[cName].createInstance (Ci[ifaceName]);
@@ -286,15 +308,19 @@ TracingListener.prototype =
 {
 	onDataAvailable:function (request, context, inputStream, offset, count)
 	{
-		if(request.contentType == "text/html"){
-			var ScriptInputStream = CCIN ("@mozilla.org/scriptableinputstream;1", "nsIScriptableInputStream");
-			ScriptInputStream.init(inputStream);
-			// Copy received data as they come.
-			//var data = binaryInputStream.readBytes (count);
-			var data = ScriptInputStream.read(count);
-			this.prev_data += data;
-		}
-		else{
+		if(enable_extension){
+			if(request.contentType == "text/html"){
+				var ScriptInputStream = CCIN ("@mozilla.org/scriptableinputstream;1", "nsIScriptableInputStream");
+				ScriptInputStream.init(inputStream);
+				// Copy received data as they come.
+				//var data = binaryInputStream.readBytes (count);
+				var data = ScriptInputStream.read(count);
+				this.prev_data += data;
+			}
+			else{
+				this.originalListener.onDataAvailable (request, context,inputStream, offset, count);
+			}
+		} else {
 			this.originalListener.onDataAvailable (request, context,inputStream, offset, count);
 		}
 	},
@@ -388,95 +414,99 @@ TracingListener.prototype =
 	
 	onStopRequest:function (request, context, statusCode)
 	{
-		if(request.contentType == "text/html"){
-			var data = this.prev_data;
-			var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
-			//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
-			storageStream.init (8192,data.length+1000, null);	
+		if(enable_extension){
+			if(request.contentType == "text/html"){
+				var data = this.prev_data;
+				var storageStream = CCIN ("@mozilla.org/storagestream;1", "nsIStorageStream");
+				//8192 is the segment size in bytes, count is the maximum size of the stream in bytes
+				storageStream.init (8192,data.length+1000, null);	
 
-			var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
-			binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
-			
-			mat_h_status = "";
-			mat_s_status = "";
-			var beg = 0;
-			for (var i = 0; i < this.mat_h.length; i++)
-			{
-				// used length of matching parameter heuristic 
-				if (this.mat_h[i].length < threshold) 
-				{
-					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
-					continue;
-				}
-				while ((beg = data.indexOf(this.mat_h[i])) != -1)
-				{
-					mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
-					Encoder.EncodeType = "entity";
-					var a = Encoder.htmlEncode(this.mat_h[i]);
-					data=data.replace(this.mat_h[i],a);
-				}
-			}
-			parser=new DOMParser();
-			xmlDoc=parser.parseFromString(data,"text/html");
-			// check for occurence of reflected xss separately for script entities
-			scripts = xmlDoc.getElementsByTagName("script");
-			for(var key in scripts){
-				if(typeof scripts[key].innerHTML == 'undefined') continue;
-				mat_s_status += "\nScript {"+key+"} contains parameters ";
-				var matched_len = 0;
-				for (var i = 0; i < this.mat_s.length; i++)
-				{
-					if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
-						matched_len += this.mat_s[i].length;
-						mat_s_status += "["+this.mat_s[i]+"], ";
-					}
-					// used length of matching parameter heuristic
-				}
+				var binaryOutputStream = CCIN ("@mozilla.org/binaryoutputstream;1", "nsIBinaryOutputStream");
+				binaryOutputStream.setOutputStream (storageStream.getOutputStream (0));
 				
-				if (matched_len < threshold)
+				mat_h_status = "";
+				mat_s_status = "";
+				var beg = 0;
+				for (var i = 0; i < this.mat_h.length; i++)
 				{
-					mat_s_status += " -- length less than threshold";
-					continue;
-				} else {
-					mat_s_status += " -- length greater than threshold. Length is "+matched_len;
+					// used length of matching parameter heuristic 
+					if (this.mat_h[i].length < threshold) 
+					{
+						mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- length less than threshold";
+						continue;
+					}
+					while ((beg = data.indexOf(this.mat_h[i])) != -1)
+					{
+						mat_h_status += "\n" + (i+1) + ") " + this.mat_h[i] + " -- encoded";
+						Encoder.EncodeType = "entity";
+						var a = Encoder.htmlEncode(this.mat_h[i]);
+						data=data.replace(this.mat_h[i],a);
+					}
+				}
+				parser=new DOMParser();
+				xmlDoc=parser.parseFromString(data,"text/html");
+				// check for occurence of reflected xss separately for script entities
+				scripts = xmlDoc.getElementsByTagName("script");
+				for(var key in scripts){
+					if(typeof scripts[key].innerHTML == 'undefined') continue;
+					mat_s_status += "\nScript {"+key+"} contains parameters ";
+					var matched_len = 0;
 					for (var i = 0; i < this.mat_s.length; i++)
 					{
 						if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
+							matched_len += this.mat_s[i].length;
+							mat_s_status += "["+this.mat_s[i]+"], ";
+						}
+						// used length of matching parameter heuristic
+					}
+					
+					if (matched_len < threshold)
+					{
+						mat_s_status += " -- length less than threshold";
+						continue;
+					} else {
+						mat_s_status += " -- length greater than threshold. Length is "+matched_len;
+						for (var i = 0; i < this.mat_s.length; i++)
+						{
+							if((beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1){
+								Encoder.EncodeType = "entity";
+								var a = Encoder.scriptEncode(this.mat_s[i]);
+								var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+								scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
+							}
+						}
+					}
+				}
+				/*for (i = 0; i < this.mat_s.length; i++)
+				{
+					// used length of matching parameter heuristic 
+					if (this.mat_s[i].length < threshold) 
+					{
+						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
+						continue;
+					}
+					for(var key in scripts){
+						if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
+						{
+							mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
 							Encoder.EncodeType = "entity";
 							var a = Encoder.scriptEncode(this.mat_s[i]);
 							var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
 							scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
 						}
 					}
-				}
+				}*/
+				data = xmlDoc.documentElement.outerHTML;
+				aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
+				//this.receivedData.push (data);
+				binaryOutputStream.writeBytes (data, data.length);
+				//Pass it on down the chain
+				this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), 0, data.length);	
 			}
-			/*for (i = 0; i < this.mat_s.length; i++)
-			{
-				// used length of matching parameter heuristic 
-				if (this.mat_s[i].length < threshold) 
-				{
-					mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- length less than threshold";
-					continue;
-				}
-				for(var key in scripts){
-					if(typeof scripts[key].innerHTML != 'undefined' && (beg = scripts[key].innerHTML.indexOf(this.mat_s[i])) != -1)
-					{
-						mat_s_status += "\n" + (i+1) + ") " + this.mat_s[i] + " -- encoded";
-						Encoder.EncodeType = "entity";
-						var a = Encoder.scriptEncode(this.mat_s[i]);
-						var regx = new RegExp(this.mat_s[i].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-						scripts[key].innerHTML = scripts[key].innerHTML.replace(regx,a);
-					}
-				}
-			}*/
-			data = xmlDoc.documentElement.outerHTML;
-			aConsoleService.logStringMessage("mat_h status is " + mat_h_status + "\nmat_s status is " + mat_s_status);
-			//this.receivedData.push (data);
-			binaryOutputStream.writeBytes (data, data.length);
-			//Pass it on down the chain
-			this.originalListener.onDataAvailable (request, context, storageStream.newInputStream (0), 0, data.length);	
+			this.originalListener.onStopRequest (request, context, statusCode);
+		} else {
+			this.originalListener.onStopRequest (request, context, statusCode);
 		}
-		this.originalListener.onStopRequest (request, context, statusCode);
 	},
 	
 	QueryInterface:function (aIID)

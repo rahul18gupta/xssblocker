@@ -17,6 +17,8 @@
 		</statusbar>
 		
 		<toolbarpalette id="BrowserToolbarPalette">
-			<toolbarbutton id="link-target-finder-toolbar-button" label="Link Target Finder" tooltiptext="&runlinktargetfinder;" oncommand="linkTargetFinder.run()"/>
+			<toolbarbutton id="link-target-finder-toolbar-button" label="XSS Blocker" tooltiptext="&runlinktargetfinder;" oncommand="linkTargetFinder.run()"/>
 		</toolbarpalette>
+
 </overlay>
+
